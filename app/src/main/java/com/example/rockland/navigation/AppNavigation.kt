@@ -158,15 +158,12 @@ fun AppNavigation(
                 },
                 onLogoutClick = {
                     userViewModel.logout()
-                    navController.navigate(AppRoutes.WELCOME) {
-                        popUpTo(AppRoutes.MAIN) { inclusive = true }
-                    }
                 },
                 userViewModel = userViewModel
             )
         }
         composable(AppRoutes.ROUTE_BOXES) {
-            BoxesScreen(userId = userViewModel.userData.value?.userId)
+            BoxesScreen(userId = userId)
         }
 
 
@@ -197,9 +194,6 @@ fun AppNavigation(
                 onUploadProfilePicture = { uri -> userViewModel.uploadProfilePicture(uri) },
                 onLogoutClick = {
                     userViewModel.logout()
-                    navController.navigate(AppRoutes.WELCOME) {
-                        popUpTo(AppRoutes.MAIN) { inclusive = true }
-                    }
                 },
                 onValidationError = { msg -> userViewModel.showError(msg) },
                 )

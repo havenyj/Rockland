@@ -49,30 +49,84 @@ class FriendsViewModel(
     private var currentUserId: String = ""
     private var currentDisplayName: String = ""
     private var searchJob: Job? = null
+    private var friendsJob: Job? = null
+    private var outgoingRequestsJob: Job? = null
+    private var incomingRequestsJob: Job? = null
+    private var acceptFriendRequestsJob: Job? = null
 
     fun bindUser(userId: String?, displayName: String) {
+        friendsJob?.cancel()
+        outgoingRequestsJob?.cancel()
+        incomingRequestsJob?.cancel()
+        acceptFriendRequestsJob?.cancel()
+        
         currentUserId = userId.orEmpty()
         currentDisplayName = displayName.ifBlank { "Me" }
         _uiState.update { it.copy(currentUserId = currentUserId) }
-        if (currentUserId.isBlank()) return
-        viewModelScope.launch {
-            repository.getFriendsFlow(currentUserId).collect { list ->
-                _uiState.update { it.copy(friends = list) }
+        
+        if (currentUserId.isBlank()) {
+            _uiState.update {
+                it.copy(
+                    friends = emptyList(),
+                    outgoingRequests = emptyList(),
+                    incomingRequests = emptyList(),
+                    acceptFriendRequests = true
+                )
+            }
+            return
+        }
+        
+        friendsJob = viewModelScope.launch {
+            try {
+                repository.getFriendsFlow(currentUserId).collect { list ->
+                    if (_uiState.value.currentUserId == currentUserId) {
+                        _uiState.update { it.copy(friends = list) }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FriendsViewModel", "getFriendsFlow error", e)
+                if (_uiState.value.currentUserId == currentUserId) {
+                    _uiState.update { it.copy(friends = emptyList()) }
+                }
             }
         }
-        viewModelScope.launch {
-            repository.getOutgoingRequestsFlow(currentUserId).collect { list ->
-                _uiState.update { it.copy(outgoingRequests = list) }
+        outgoingRequestsJob = viewModelScope.launch {
+            try {
+                repository.getOutgoingRequestsFlow(currentUserId).collect { list ->
+                    if (_uiState.value.currentUserId == currentUserId) {
+                        _uiState.update { it.copy(outgoingRequests = list) }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FriendsViewModel", "getOutgoingRequestsFlow error", e)
+                if (_uiState.value.currentUserId == currentUserId) {
+                    _uiState.update { it.copy(outgoingRequests = emptyList()) }
+                }
             }
         }
-        viewModelScope.launch {
-            repository.getIncomingRequestsFlow(currentUserId).collect { list ->
-                _uiState.update { it.copy(incomingRequests = list) }
+        incomingRequestsJob = viewModelScope.launch {
+            try {
+                repository.getIncomingRequestsFlow(currentUserId).collect { list ->
+                    if (_uiState.value.currentUserId == currentUserId) {
+                        _uiState.update { it.copy(incomingRequests = list) }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FriendsViewModel", "getIncomingRequestsFlow error", e)
+                if (_uiState.value.currentUserId == currentUserId) {
+                    _uiState.update { it.copy(incomingRequests = emptyList()) }
+                }
             }
         }
-        viewModelScope.launch {
-            repository.getAcceptFriendRequestsFlow(currentUserId).collect { accept ->
-                _uiState.update { it.copy(acceptFriendRequests = accept) }
+        acceptFriendRequestsJob = viewModelScope.launch {
+            try {
+                repository.getAcceptFriendRequestsFlow(currentUserId).collect { accept ->
+                    if (_uiState.value.currentUserId == currentUserId) {
+                        _uiState.update { it.copy(acceptFriendRequests = accept) }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("FriendsViewModel", "getAcceptFriendRequestsFlow error", e)
             }
         }
     }

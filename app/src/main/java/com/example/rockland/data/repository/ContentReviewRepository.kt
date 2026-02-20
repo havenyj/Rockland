@@ -44,12 +44,18 @@ class ContentReviewRepository(
     private val helpRequestsRef = firestore.collection("help_requests")
 
     suspend fun fetchPendingExpertApplications(): List<ExpertApplicationReviewItem> {
-        val snapshot = usersRef
-            .whereEqualTo("expertApplication.status", ApplicationStatus.PENDING.name)
-            .orderBy("expertApplication.submittedAt", Query.Direction.DESCENDING)
-            .get()
-            .await()
-        return snapshot.documents.map { doc -> expertApplicationFromUserDoc(doc) }
+        return try {
+            val snapshot = usersRef
+                .whereEqualTo("expertApplication.status", ApplicationStatus.PENDING.name)
+                .orderBy("expertApplication.submittedAt", Query.Direction.DESCENDING)
+                .get()
+                .await()
+            android.util.Log.d("ContentReviewRepository", "fetchPendingExpertApplications: found ${snapshot.documents.size} documents")
+            snapshot.documents.map { doc -> expertApplicationFromUserDoc(doc) }
+        } catch (e: Exception) {
+            android.util.Log.e("ContentReviewRepository", "fetchPendingExpertApplications failed", e)
+            emptyList()
+        }
     }
 
     fun observePendingExpertApplications(): Flow<List<ExpertApplicationReviewItem>> = callbackFlow {
@@ -58,10 +64,13 @@ class ContentReviewRepository(
             .orderBy("expertApplication.submittedAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    android.util.Log.e("ContentReviewRepository", "observePendingExpertApplications error", error)
+                    android.util.Log.e("ContentReviewRepository", "Error code: ${error.code}, message: ${error.message}")
                     trySend(emptyList())
                     return@addSnapshotListener
                 }
                 val docs = snapshot?.documents.orEmpty()
+                android.util.Log.d("ContentReviewRepository", "observePendingExpertApplications: found ${docs.size} documents")
                 val list = docs.map { doc -> expertApplicationFromUserDoc(doc) }
                 trySend(list)
             }
@@ -82,6 +91,12 @@ class ContentReviewRepository(
             .joinToString(" ")
             .ifBlank { doc.getString("email") ?: "User" }
 
+        val yearsOfExperienceRaw = doc.get("expertApplication.yearsOfExperience")
+        val yearsOfExperience = when (yearsOfExperienceRaw) {
+            is String -> yearsOfExperienceRaw
+            is Number -> yearsOfExperienceRaw.toString()
+            else -> ""
+        }
         return ExpertApplicationReviewItem(
             userId = doc.getString("userId") ?: doc.id,
             userDisplayName = displayName,
@@ -89,7 +104,7 @@ class ContentReviewRepository(
             currentRole = doc.getString("role") ?: "nature_enthusiast",
             fullName = doc.getString("expertApplication.fullName") ?: "",
             expertise = doc.getString("expertApplication.expertise") ?: "",
-            yearsOfExperience = doc.getString("expertApplication.yearsOfExperience") ?: "",
+            yearsOfExperience = yearsOfExperience,
             portfolioLink = doc.getString("expertApplication.portfolioLink") ?: "",
             notes = doc.getString("expertApplication.notes") ?: "",
             submittedAt = submittedAt
@@ -573,12 +588,18 @@ class ContentReviewRepository(
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
+                    android.util.Log.e("ContentReviewRepository", "observeUserNotifications listener error", error)
                     trySend(emptyList())
                     return@addSnapshotListener
                 }
-                val docs = snapshot?.documents.orEmpty()
-                val list = docs.map { doc -> userNotificationFromDoc(doc) }
-                trySend(list)
+                try {
+                    val docs = snapshot?.documents.orEmpty()
+                    val list = docs.map { doc -> userNotificationFromDoc(doc) }
+                    trySend(list)
+                } catch (e: Exception) {
+                    android.util.Log.e("ContentReviewRepository", "observeUserNotifications error", e)
+                    trySend(emptyList())
+                }
             }
         awaitClose { registration.remove() }
     }

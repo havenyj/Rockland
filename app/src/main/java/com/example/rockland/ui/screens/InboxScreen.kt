@@ -134,7 +134,7 @@ fun InboxScreen(
     val faqViewModel: FaqViewModel = viewModel(factory = FaqViewModel.Factory())
     val isFaqAdmin = userData?.role?.trim()?.lowercase() in listOf("admin", "user_admin")
     val isVerifiedExpert = userData?.role?.trim()?.lowercase() == "verified_expert"
-    val isAdmin = userData?.role?.trim()?.lowercase() == "admin"
+    val isAdmin = userData?.role?.trim()?.lowercase() in listOf("admin", "user_admin")
     val helpRequestListVisible = remember { mutableStateOf(false) }
     val helpRequestDetail = remember { mutableStateOf<HelpRequest?>(null) }
     val helpReplyPreviewNotification = remember { mutableStateOf<InboxNotification?>(null) }
@@ -148,9 +148,11 @@ fun InboxScreen(
         chatViewModel.bindUser(userData?.userId)
     }
     LaunchedEffect(friendsScreenVisible.value, userData?.userId) {
-        if (friendsScreenVisible.value) {
-            val displayName = listOf(userData?.firstName, userData?.lastName).filter { !it.isNullOrBlank() }.joinToString(" ").ifBlank { userData?.email ?: "Me" }
-            friendsViewModel.bindUser(userData?.userId, displayName)
+        if (friendsScreenVisible.value && userData != null) {
+            val displayName = listOf(userData.firstName, userData.lastName).filter { !it.isNullOrBlank() }.joinToString(" ").ifBlank { userData.email ?: "Me" }
+            friendsViewModel.bindUser(userData.userId, displayName)
+        } else if (friendsScreenVisible.value && userData == null) {
+            friendsViewModel.bindUser(null, "Me")
         }
     }
     LaunchedEffect(userData?.userId) {
@@ -461,12 +463,7 @@ fun InboxScreen(
         val latestPreview = notifications.firstOrNull()?.let { n ->
             if (n.id == "pending_comments") {
                 val commentCount = pendingComments.size
-                val imageCount = pendingPhotos.size
-                if (imageCount > 0) {
-                    "Content review: $commentCount comment(s), $imageCount image(s) pending"
-                } else {
-                    "Content review: $commentCount comment(s) pending"
-                }
+                "Content review: $commentCount comment(s) pending"
             } else {
                 "${n.title}: ${n.message.take(40)}"
             }
@@ -3088,11 +3085,7 @@ private fun ContentReviewTabContent(
                 )
             }
             item {
-                val subtitle = if (pendingImageCount > 0) {
-                    "$pendingCommentCount Comments, $pendingImageCount Images Pending"
-                } else {
-                    "$pendingCommentCount Comments Pending"
-                }
+                val subtitle = "$pendingCommentCount Comments Pending"
                 ReviewEntryCard(
                     title = "Content Review",
                     subtitle = subtitle,

@@ -104,33 +104,70 @@ class ReviewContentViewModel(
             pendingCommentsJob?.cancel()
             pendingPhotosJob?.cancel()
             _userRawNotifications.value = emptyList()
-            if (!userId.isNullOrBlank()) {
-                notificationsJob = viewModelScope.launch {
+            
+            if (userId.isNullOrBlank()) {
+                _pendingComments.value = emptyList()
+                _pendingPhotos.value = emptyList()
+                _pendingRockRequests.value = emptyList()
+                _pendingHelpRequests.value = emptyList()
+                _pendingExpertApplications.value = emptyList()
+                _notifications.value = emptyList()
+                return
+            }
+            
+            notificationsJob = viewModelScope.launch {
+                try {
                     repository.observeUserNotifications(userId).collectLatest { raw ->
-                        _userRawNotifications.value = raw
-                        refreshNotifications()
+                        if (_userId.value == userId) {
+                            _userRawNotifications.value = raw
+                            refreshNotifications()
+                        }
                     }
+                } catch (e: Exception) {
+                    android.util.Log.e("ReviewContentViewModel", "observeUserNotifications error", e)
                 }
             }
-            if (normalizedRole == "admin") {
+            if (normalizedRole == "admin" || normalizedRole == "user_admin") {
+                android.util.Log.d("ReviewContentViewModel", "bindUser: Starting observePendingExpertApplications for role=$normalizedRole")
                 pendingApplicationsJob = viewModelScope.launch {
-                    repository.observePendingExpertApplications().collectLatest { list ->
-                        _pendingExpertApplications.value = list
-                        refreshNotifications()
+                    try {
+                        repository.observePendingExpertApplications().collectLatest { list ->
+                            if (_userId.value == userId && (_role.value == "admin" || _role.value == "user_admin")) {
+                                android.util.Log.d("ReviewContentViewModel", "observePendingExpertApplications: received ${list.size} applications")
+                                _pendingExpertApplications.value = list
+                                refreshNotifications()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ReviewContentViewModel", "observePendingExpertApplications error", e)
                     }
                 }
+            } else {
+                android.util.Log.d("ReviewContentViewModel", "bindUser: Skipping observePendingExpertApplications for role=$normalizedRole")
             }
             if (normalizedRole == "verified_expert") {
                 pendingCommentsJob = viewModelScope.launch {
-                    repository.observePendingComments().collectLatest { comments ->
-                        _pendingComments.value = comments
-                        refreshNotifications()
+                    try {
+                        repository.observePendingComments().collectLatest { comments ->
+                            if (_userId.value == userId && _role.value == "verified_expert") {
+                                _pendingComments.value = comments
+                                refreshNotifications()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ReviewContentViewModel", "observePendingComments error", e)
                     }
                 }
                 pendingPhotosJob = viewModelScope.launch {
-                    repository.observePendingPhotos().collectLatest { photos ->
-                        _pendingPhotos.value = photos
-                        refreshNotifications()
+                    try {
+                        repository.observePendingPhotos().collectLatest { photos ->
+                            if (_userId.value == userId && _role.value == "verified_expert") {
+                                _pendingPhotos.value = photos
+                                refreshNotifications()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("ReviewContentViewModel", "observePendingPhotos error", e)
                     }
                 }
             }
@@ -141,19 +178,35 @@ class ReviewContentViewModel(
     }
 
     fun refresh() {
+        val currentUserId = _userId.value
+        val currentRole = _role.value
+        if (currentUserId.isNullOrBlank() && currentRole == "nature_enthusiast") {
+            _pendingComments.value = emptyList()
+            _pendingPhotos.value = emptyList()
+            _pendingRockRequests.value = emptyList()
+            _pendingHelpRequests.value = emptyList()
+            _pendingExpertApplications.value = emptyList()
+            _notifications.value = emptyList()
+            return
+        }
         viewModelScope.launch {
             _isLoading.value = true
             try {
+                if (_userId.value != currentUserId || _role.value != currentRole) {
+                    return@launch
+                }
                 val comments = repository.fetchPendingComments()
                 val photos = repository.fetchPendingPhotos()
+                if (_userId.value != currentUserId || _role.value != currentRole) {
+                    return@launch
+                }
                 _pendingComments.value = comments
                 _pendingPhotos.value = photos
-                val rockRequests = if (_role.value == "admin") {
+                val rockRequests = if (_role.value == "admin" || _role.value == "user_admin") {
                     repository.fetchPendingRockDictionaryRequests()
                 } else {
                     emptyList()
                 }
-                _pendingRockRequests.value = rockRequests
                 val helpRequests = if (_role.value == "admin" || _role.value == "user_admin") {
                     try {
                         repository.fetchPendingHelpRequests()
@@ -164,29 +217,41 @@ class ReviewContentViewModel(
                 } else {
                     emptyList()
                 }
-                _pendingHelpRequests.value = helpRequests
-                val expertApplications = if (_role.value == "admin") {
+                val expertApplications = if (_role.value == "admin" || _role.value == "user_admin") {
+                    android.util.Log.d("ReviewContentViewModel", "refresh: Fetching expert applications for role=${_role.value}")
                     try {
-                        repository.fetchPendingExpertApplications()
+                        val apps = repository.fetchPendingExpertApplications()
+                        android.util.Log.d("ReviewContentViewModel", "refresh: Fetched ${apps.size} expert applications")
+                        apps
                     } catch (e: Exception) {
                         android.util.Log.e("ReviewContentViewModel", "Failed to fetch pending expert applications", e)
                         emptyList()
                     }
                 } else {
+                    android.util.Log.d("ReviewContentViewModel", "refresh: Skipping expert applications fetch for role=${_role.value}")
                     emptyList()
                 }
+                if (_userId.value != currentUserId || _role.value != currentRole) {
+                    return@launch
+                }
+                _pendingRockRequests.value = rockRequests
+                _pendingHelpRequests.value = helpRequests
                 _pendingExpertApplications.value = expertApplications
                 refreshNotifications()
             } catch (e: Exception) {
                 android.util.Log.e("ReviewContentViewModel", "Failed to refresh", e)
-                _pendingComments.value = emptyList()
-                _pendingPhotos.value = emptyList()
-                _pendingRockRequests.value = emptyList()
-                _pendingHelpRequests.value = emptyList()
-                _pendingExpertApplications.value = emptyList()
-                _notifications.value = emptyList()
+                if (_userId.value == currentUserId && _role.value == currentRole) {
+                    _pendingComments.value = emptyList()
+                    _pendingPhotos.value = emptyList()
+                    _pendingRockRequests.value = emptyList()
+                    _pendingHelpRequests.value = emptyList()
+                    _pendingExpertApplications.value = emptyList()
+                    _notifications.value = emptyList()
+                }
             } finally {
-                _isLoading.value = false
+                if (_userId.value == currentUserId && _role.value == currentRole) {
+                    _isLoading.value = false
+                }
             }
         }
     }
@@ -200,24 +265,24 @@ class ReviewContentViewModel(
         val userNotifications = _userRawNotifications.value
         val role = _role.value
         val userId = _userId.value
+        
+        if (userId.isNullOrBlank() && role == "nature_enthusiast") {
+            _notifications.value = emptyList()
+            return
+        }
         if (role == "verified_expert") {
             val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
                 if (pendingComments.isNotEmpty() || pendingPhotos.isNotEmpty()) {
                     val commentCount = pendingComments.size
-                    val photoCount = pendingPhotos.size
-                    val message = if (photoCount > 0) {
-                        "You have $commentCount comment(s) and $photoCount image submission(s) waiting for review."
-                    } else {
-                        "You have $commentCount comment(s) waiting for review."
-                    }
+                    val message = "You have $commentCount comment(s) waiting for review."
                     add(
                         InboxNotification(
                             id = "pending_comments",
                             title = "Content Pending Review",
                             message = message,
                             date = "Today",
-                            isRead = commentCount <= seen.pendingCommentCount && photoCount <= seen.pendingPhotoCount
+                            isRead = commentCount <= seen.pendingCommentCount
                         )
                     )
                 }
@@ -268,6 +333,17 @@ class ReviewContentViewModel(
         } else if (role == "user_admin") {
             val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
+                if (pendingRockRequests.isNotEmpty()) {
+                    add(
+                        InboxNotification(
+                            id = "pending_rock_dictionary",
+                            title = "Rock Dictionary Review",
+                            message = "You have ${pendingRockRequests.size} dictionary updates waiting for review.",
+                            date = "Today",
+                            isRead = pendingRockRequests.size <= seen.pendingRockCount
+                        )
+                    )
+                }
                 if (pendingHelpRequests.isNotEmpty()) {
                     add(
                         InboxNotification(
@@ -276,6 +352,18 @@ class ReviewContentViewModel(
                             message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
                             date = "Today",
                             isRead = pendingHelpRequests.size <= seen.pendingHelpCount
+                        )
+                    )
+                }
+                if (pendingExpertApplications.isNotEmpty()) {
+                    val latestSubmittedAt = pendingExpertApplications.maxOfOrNull { it.submittedAt } ?: 0L
+                    add(
+                        InboxNotification(
+                            id = "pending_expert_applications",
+                            title = "Application Review",
+                            message = "You have ${pendingExpertApplications.size} expert application(s) waiting for review.",
+                            date = "Today",
+                            isRead = latestSubmittedAt <= seen.pendingExpertApplicationLastSeenAt
                         )
                     )
                 }

@@ -51,7 +51,14 @@ class ChatViewModel(
                 if (uid.isBlank()) flowOf(emptyList<ChatConversation>())
                 else repository.getConversationsFlow(uid)
             }.collect { list ->
-                _uiState.update { it.copy(conversations = list) }
+                try {
+                    _uiState.update { it.copy(conversations = list) }
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatViewModel", "Error updating conversations", e)
+                    if (_boundUserId.value.isNotBlank()) {
+                        _uiState.update { it.copy(conversations = emptyList()) }
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -59,7 +66,14 @@ class ChatViewModel(
                 if (convId == null) flowOf(emptyList<ChatMessage>())
                 else repository.getMessagesFlow(convId)
             }.collect { list ->
-                _uiState.update { it.copy(messages = list) }
+                try {
+                    _uiState.update { it.copy(messages = list) }
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatViewModel", "Error updating messages", e)
+                    if (_boundConversationId.value != null) {
+                        _uiState.update { it.copy(messages = emptyList()) }
+                    }
+                }
             }
         }
     }

@@ -86,31 +86,36 @@ class FirestoreFriendsRepository(
                 val docs = snap?.documents.orEmpty()
                 // Fetch friend profiles so the Friends list can show names instead of raw userIds.
                 launch {
-                    val relations = docs.mapNotNull { d ->
-                        val users = d.get("users") as? List<*>
-                        val otherId = users
-                            ?.filterIsInstance<String>()
-                            ?.find { it != userId }
-                            ?: return@mapNotNull null
+                    try {
+                        val relations = docs.mapNotNull { d ->
+                            val users = d.get("users") as? List<*>
+                            val otherId = users
+                                ?.filterIsInstance<String>()
+                                ?.find { it != userId }
+                                ?: return@mapNotNull null
 
-                        val profile = runCatching { usersRef.document(otherId).get().await() }.getOrNull()
-                        val first = profile?.getString("firstName").orEmpty()
-                        val last = profile?.getString("lastName").orEmpty()
-                        val displayName = listOf(first, last)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" ")
-                            .ifBlank { profile?.getString("email").orEmpty().ifBlank { otherId } }
-                        val email = profile?.getString("email").orEmpty()
-                        val profilePicUrl = profile?.getString("profilePictureUrl").orEmpty()
+                            val profile = runCatching { usersRef.document(otherId).get().await() }.getOrNull()
+                            val first = profile?.getString("firstName").orEmpty()
+                            val last = profile?.getString("lastName").orEmpty()
+                            val displayName = listOf(first, last)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" ")
+                                .ifBlank { profile?.getString("email").orEmpty().ifBlank { otherId } }
+                            val email = profile?.getString("email").orEmpty()
+                            val profilePicUrl = profile?.getString("profilePictureUrl").orEmpty()
 
-                        FriendRelation(
-                            friendUserId = otherId,
-                            friendDisplayName = displayName,
-                            friendEmail = email,
-                            friendProfilePictureUrl = profilePicUrl
-                        )
+                            FriendRelation(
+                                friendUserId = otherId,
+                                friendDisplayName = displayName,
+                                friendEmail = email,
+                                friendProfilePictureUrl = profilePicUrl
+                            )
+                        }
+                        trySend(relations)
+                    } catch (e: Exception) {
+                        android.util.Log.e("FirestoreFriendsRepository", "getFriendsFlow error", e)
+                        trySend(emptyList())
                     }
-                    trySend(relations)
                 }
             }
         awaitClose { reg.remove() }
@@ -120,24 +125,34 @@ class FirestoreFriendsRepository(
         val reg: ListenerRegistration = friendRequestsRef
             .whereEqualTo("fromUserId", userId)
             .whereEqualTo("status", "pending")
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreFriendsRepository", "getOutgoingRequestsFlow listener error", error)
+                    launch { trySend(emptyList()) }
+                    return@addSnapshotListener
+                }
                 val docs = snap?.documents.orEmpty()
                 launch {
-                    val list = docs.map { d ->
-                        val toId = d.getString("toUserId").orEmpty()
-                        val profile = runCatching { usersRef.document(toId).get().await() }.getOrNull()
-                        val toAvatar = profile?.getString("profilePictureUrl").orEmpty()
-                        FriendRequest(
-                            id = d.id,
-                            fromUserId = d.getString("fromUserId").orEmpty(),
-                            toUserId = toId,
-                            fromDisplayName = d.getString("fromDisplayName").orEmpty(),
-                            toDisplayName = d.getString("toDisplayName").orEmpty(),
-                            createdAtMillis = (d.getLong("createdAtMillis") ?: 0L),
-                            toProfilePictureUrl = toAvatar
-                        )
+                    try {
+                        val list = docs.map { d ->
+                            val toId = d.getString("toUserId").orEmpty()
+                            val profile = runCatching { usersRef.document(toId).get().await() }.getOrNull()
+                            val toAvatar = profile?.getString("profilePictureUrl").orEmpty()
+                            FriendRequest(
+                                id = d.id,
+                                fromUserId = d.getString("fromUserId").orEmpty(),
+                                toUserId = toId,
+                                fromDisplayName = d.getString("fromDisplayName").orEmpty(),
+                                toDisplayName = d.getString("toDisplayName").orEmpty(),
+                                createdAtMillis = (d.getLong("createdAtMillis") ?: 0L),
+                                toProfilePictureUrl = toAvatar
+                            )
+                        }
+                        trySend(list)
+                    } catch (e: Exception) {
+                        android.util.Log.e("FirestoreFriendsRepository", "getOutgoingRequestsFlow error", e)
+                        trySend(emptyList())
                     }
-                    trySend(list)
                 }
             }
         awaitClose { reg.remove() }
@@ -147,33 +162,53 @@ class FirestoreFriendsRepository(
         val reg: ListenerRegistration = friendRequestsRef
             .whereEqualTo("toUserId", userId)
             .whereEqualTo("status", "pending")
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreFriendsRepository", "getIncomingRequestsFlow listener error", error)
+                    launch { trySend(emptyList()) }
+                    return@addSnapshotListener
+                }
                 val docs = snap?.documents.orEmpty()
                 launch {
-                    val list = docs.map { d ->
-                        val fromId = d.getString("fromUserId").orEmpty()
-                        val profile = runCatching { usersRef.document(fromId).get().await() }.getOrNull()
-                        val fromAvatar = profile?.getString("profilePictureUrl").orEmpty()
-                        FriendRequest(
-                            id = d.id,
-                            fromUserId = fromId,
-                            toUserId = d.getString("toUserId").orEmpty(),
-                            fromDisplayName = d.getString("fromDisplayName").orEmpty(),
-                            toDisplayName = d.getString("toDisplayName").orEmpty(),
-                            createdAtMillis = (d.getLong("createdAtMillis") ?: 0L),
-                            fromProfilePictureUrl = fromAvatar
-                        )
+                    try {
+                        val list = docs.map { d ->
+                            val fromId = d.getString("fromUserId").orEmpty()
+                            val profile = runCatching { usersRef.document(fromId).get().await() }.getOrNull()
+                            val fromAvatar = profile?.getString("profilePictureUrl").orEmpty()
+                            FriendRequest(
+                                id = d.id,
+                                fromUserId = fromId,
+                                toUserId = d.getString("toUserId").orEmpty(),
+                                fromDisplayName = d.getString("fromDisplayName").orEmpty(),
+                                toDisplayName = d.getString("toDisplayName").orEmpty(),
+                                createdAtMillis = (d.getLong("createdAtMillis") ?: 0L),
+                                fromProfilePictureUrl = fromAvatar
+                            )
+                        }
+                        trySend(list)
+                    } catch (e: Exception) {
+                        android.util.Log.e("FirestoreFriendsRepository", "getIncomingRequestsFlow error", e)
+                        trySend(emptyList())
                     }
-                    trySend(list)
                 }
             }
         awaitClose { reg.remove() }
     }
 
     override fun getAcceptFriendRequestsFlow(userId: String): Flow<Boolean> = callbackFlow {
-        val reg: ListenerRegistration = usersRef.document(userId).addSnapshotListener { snap, _ ->
-            val accept = snap?.getBoolean("acceptFriendRequests") ?: true
-            trySend(accept)
+        val reg: ListenerRegistration = usersRef.document(userId).addSnapshotListener { snap, error ->
+            if (error != null) {
+                android.util.Log.e("FirestoreFriendsRepository", "getAcceptFriendRequestsFlow listener error", error)
+                trySend(true)
+                return@addSnapshotListener
+            }
+            try {
+                val accept = snap?.getBoolean("acceptFriendRequests") ?: true
+                trySend(accept)
+            } catch (e: Exception) {
+                android.util.Log.e("FirestoreFriendsRepository", "getAcceptFriendRequestsFlow error", e)
+                trySend(true)
+            }
         }
         awaitClose { reg.remove() }
     }
@@ -300,58 +335,75 @@ class FirestoreFriendsRepository(
         val reg: ListenerRegistration = conversationsRef
             .whereArrayContains("participants", userId)
             .orderBy("lastMessageAtMillis", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreFriendsRepository", "getConversationsFlow listener error", error)
+                    launch {
+                        trySend(emptyList())
+                    }
+                    return@addSnapshotListener
+                }
                 val docs = snap?.documents.orEmpty()
                 launch {
-                    val readSnapshot = usersRef.document(userId)
-                        .collection("chatRead")
-                        .get()
-                        .await()
-                    val readByConv = readSnapshot.documents.associate { doc ->
-                        doc.id to (doc.getLong("lastSeenAtMillis") ?: 0L)
-                    }
-                    val conversations = docs.map { d ->
-                        val participants = (d.get("participants") as? List<*>)?.filterIsInstance<String>().orEmpty()
-                        val otherId = participants.find { it != userId }.orEmpty()
-
-                        val profile = runCatching { usersRef.document(otherId).get().await() }.getOrNull()
-                        val first = profile?.getString("firstName").orEmpty()
-                        val last = profile?.getString("lastName").orEmpty()
-                        val displayName = listOf(first, last)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" ")
-                            .ifBlank { profile?.getString("email").orEmpty().ifBlank { otherId } }
-                        val otherProfilePicUrl = profile?.getString("profilePictureUrl").orEmpty()
-
-                        val lastMessageAt = d.getLong("lastMessageAtMillis") ?: 0L
-                        val lastMessageSenderId = d.getString("lastMessageSenderId").orEmpty()
-                        val lastSeen = readByConv[d.id] ?: 0L
-                        val unread = if (lastMessageAt > lastSeen && lastMessageSenderId.isNotBlank() && lastMessageSenderId != userId) {
-                            val snap = conversationsRef.document(d.id)
-                                .collection("messages")
-                                .whereGreaterThan("sentAtMillis", lastSeen)
-                                .get()
-                                .await()
-                            snap.documents.count { doc ->
-                                val sender = doc.getString("senderId").orEmpty()
-                                val sentAt = doc.getLong("sentAtMillis") ?: 0L
-                                sender != userId && sentAt > lastSeen
-                            }
-                        } else {
-                            0
+                    try {
+                        val readSnapshot = usersRef.document(userId)
+                            .collection("chatRead")
+                            .get()
+                            .await()
+                        val readByConv = readSnapshot.documents.associate { doc ->
+                            doc.id to (doc.getLong("lastSeenAtMillis") ?: 0L)
                         }
+                        val conversations = docs.map { d ->
+                            val participants = (d.get("participants") as? List<*>)?.filterIsInstance<String>().orEmpty()
+                            val otherId = participants.find { it != userId }.orEmpty()
 
-                        ChatConversation(
-                            id = d.id,
-                            otherUserId = otherId,
-                            otherDisplayName = displayName,
-                            otherProfilePictureUrl = otherProfilePicUrl,
-                            lastMessagePreview = d.getString("lastMessageText").orEmpty(),
-                            lastMessageAtMillis = lastMessageAt,
-                            unreadCount = unread
-                        )
+                            val profile = runCatching { usersRef.document(otherId).get().await() }.getOrNull()
+                            val first = profile?.getString("firstName").orEmpty()
+                            val last = profile?.getString("lastName").orEmpty()
+                            val displayName = listOf(first, last)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" ")
+                                .ifBlank { profile?.getString("email").orEmpty().ifBlank { otherId } }
+                            val otherProfilePicUrl = profile?.getString("profilePictureUrl").orEmpty()
+
+                            val lastMessageAt = d.getLong("lastMessageAtMillis") ?: 0L
+                            val lastMessageSenderId = d.getString("lastMessageSenderId").orEmpty()
+                            val lastSeen = readByConv[d.id] ?: 0L
+                            val unread = if (lastMessageAt > lastSeen && lastMessageSenderId.isNotBlank() && lastMessageSenderId != userId) {
+                                try {
+                                    val snap = conversationsRef.document(d.id)
+                                        .collection("messages")
+                                        .whereGreaterThan("sentAtMillis", lastSeen)
+                                        .get()
+                                        .await()
+                                    snap.documents.count { doc ->
+                                        val sender = doc.getString("senderId").orEmpty()
+                                        val sentAt = doc.getLong("sentAtMillis") ?: 0L
+                                        sender != userId && sentAt > lastSeen
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("FirestoreFriendsRepository", "Error counting unread messages", e)
+                                    0
+                                }
+                            } else {
+                                0
+                            }
+
+                            ChatConversation(
+                                id = d.id,
+                                otherUserId = otherId,
+                                otherDisplayName = displayName,
+                                otherProfilePictureUrl = otherProfilePicUrl,
+                                lastMessagePreview = d.getString("lastMessageText").orEmpty(),
+                                lastMessageAtMillis = lastMessageAt,
+                                unreadCount = unread
+                            )
+                        }
+                        trySend(conversations)
+                    } catch (e: Exception) {
+                        android.util.Log.e("FirestoreFriendsRepository", "getConversationsFlow error", e)
+                        trySend(emptyList())
                     }
-                    trySend(conversations)
                 }
             }
         awaitClose { reg.remove() }
@@ -361,18 +413,28 @@ class FirestoreFriendsRepository(
         val reg: ListenerRegistration = conversationsRef.document(conversationId)
             .collection("messages")
             .orderBy("sentAtMillis", Query.Direction.ASCENDING)
-            .addSnapshotListener { snap, _ ->
-                val list = snap?.documents.orEmpty().map { d ->
-                    ChatMessage(
-                        id = d.id,
-                        conversationId = conversationId,
-                        senderId = d.getString("senderId").orEmpty(),
-                        text = d.getString("text").orEmpty(),
-                        sentAtMillis = d.getLong("sentAtMillis") ?: 0L,
-                        isDeleted = d.getBoolean("isDeleted") ?: false
-                    )
-                }.filter { !it.isDeleted }
-                trySend(list)
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreFriendsRepository", "getMessagesFlow listener error", error)
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                try {
+                    val list = snap?.documents.orEmpty().map { d ->
+                        ChatMessage(
+                            id = d.id,
+                            conversationId = conversationId,
+                            senderId = d.getString("senderId").orEmpty(),
+                            text = d.getString("text").orEmpty(),
+                            sentAtMillis = d.getLong("sentAtMillis") ?: 0L,
+                            isDeleted = d.getBoolean("isDeleted") ?: false
+                        )
+                    }.filter { !it.isDeleted }
+                    trySend(list)
+                } catch (e: Exception) {
+                    android.util.Log.e("FirestoreFriendsRepository", "getMessagesFlow error", e)
+                    trySend(emptyList())
+                }
             }
         awaitClose { reg.remove() }
     }

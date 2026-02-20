@@ -154,8 +154,10 @@ class UserViewModel(
         }
     }
 
-    // Signs out and notifies the UI via a banner.
+    // Signs out and notifies the UI via a banner. Clear userData immediately to avoid
+    // recomposition with stale data before auth state updates.
     fun logout() {
+        _userData.value = null
         authRepository.signOut()
         showInfo("Signed out.")
     }
